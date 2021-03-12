@@ -1,0 +1,142 @@
+version: '3.3'
+services:
+  es01:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.11.1
+    container_name: es01
+    environment:
+      - node.name=es01
+      - cluster.name=es-docker-cluster
+      - discovery.seed_hosts=es02,es03
+      - cluster.initial_master_nodes=es01,es02,es03
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - data01:/usr/share/elasticsearch/data
+    healthcheck:
+      test: "curl http://localhost:9200/"
+      interval: 3s
+      timeout: 10s
+      retries: 10
+    networks:
+      - elastic
+  es02:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.11.1
+    container_name: es02
+    environment:
+      - node.name=es02
+      - cluster.name=es-docker-cluster
+      - discovery.seed_hosts=es01,es03
+      - cluster.initial_master_nodes=es01,es02,es03
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - data02:/usr/share/elasticsearch/data
+    healthcheck:
+      test: "curl http://localhost:9200/"
+      interval: 3s
+      timeout: 10s
+      retries: 10
+    networks:
+      - elastic
+  es03:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.11.1
+    container_name: es03
+    environment:
+      - node.name=es03
+      - cluster.name=es-docker-cluster
+      - discovery.seed_hosts=es01,es02
+      - cluster.initial_master_nodes=es01,es02,es03
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - data03:/usr/share/elasticsearch/data
+    healthcheck:
+      test: "curl http://localhost:9200/"
+      interval: 3s
+      timeout: 10s
+      retries: 10
+    networks:
+      - elastic
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.11.1
+    container_name: kibana
+    environment:
+      ELASTICSEARCH_URL: http://es01:9200
+      ELASTICSEARCH_HOSTS: '["http://es01:9200","http://es02:9200","http://es03:9200"]'
+    ports:
+      - 5601:5601
+    depends_on:
+      - es01
+    healthcheck:
+      test: "curl http://localhost:5601/"
+      interval: 3s
+      timeout: 10s
+      retries: 10
+    networks:
+      - elastic
+  logstash:
+    image: docker.elastic.co/logstash/logstash:7.11.1
+    container_name: logstash
+    user: root
+    volumes:
+      - type: bind
+        source: ./logstash/config/logstash.docker.yml
+        target: /usr/share/logstash/config/logstash.yml
+        read_only: true
+      - type: bind
+        source: ./logstash/pipeline
+        target: /usr/share/logstash/pipeline
+        read_only: true
+    environment:
+      LS_JAVA_OPTS: "-Xmx256m -Xms256m"
+    healthcheck:
+      test: "curl http://localhost:9600/"
+      interval: 3s
+      timeout: 10s
+      retries: 10
+    depends_on:
+      - es01
+    networks:
+      - elastic
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:7.11.1
+    container_name: filebeat
+    user: root
+    command: ["--strict.perms=false"]
+    volumes:
+      - /var/log:/var/host-log:ro
+      - type: bind
+        source: ./filebeat/config/filebeat.docker.yml
+        target: /usr/share/filebeat/filebeat.yml
+        read_only: true
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - es01
+      - logstash
+    networks:
+      - elastic
+
+volumes:
+  data01:
+    driver: local
+  data02:
+    driver: local
+  data03:
+    driver: local
+
+networks:
+  elastic:
+    driver: bridge
